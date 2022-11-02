@@ -4,14 +4,27 @@
 
 #include <cuda.h>
 #include <dlfcn.h>
-#include <unordered_map>
-#include <string>
+#include <cstring>
 #include <iostream>
+#include <string>
 
-#define CU_LIB_NAME "libcuda.so"
+extern "C" {
+void *__libc_dlsym(void *map, const char *name);
+}
+extern "C" {
+void *__libc_dlopen_mode(const char *name, int mode);
+}
 
-#define STRINGI(x) #x
-#define CUDA_SYMBOL_STRING(x) STRINGI(x)
+#define STRINGIFY(x) #x
+#define CUDA_SYMBOL_STRING(x) STRINGIFY(x)
+
+typedef void *(*fnDlsym)(void *, const char *);
+
+static void *real_dlsym(void *handle, const char *symbol) {
+  static fnDlsym internal_dlsym =
+          (fnDlsym)__libc_dlsym(__libc_dlopen_mode("libdl.so.2", RTLD_LAZY), "dlsym");
+  return (*internal_dlsym)(handle, symbol);
+}
 
 void info(std::string info) {
   printf("Info: %s\n", info.c_str());
@@ -22,32 +35,42 @@ void fatal(std::string fatal) {
   exit(-1);
 }
 
-#define CU_INTERCEPT(func_name, params, ...)                                                \
+void *dlsym(void *handle, const char *symbol) {
+
+  if (strncmp(symbol, "cu", 2) != 0) {
+    return (real_dlsym(handle, symbol));
+  }
+
+  if (strcmp(symbol, CUDA_SYMBOL_STRING(cuDriverGetVersion)) == 0) {
+    return (void *) (&cuDriverGetVersion);
+  } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuInit)) == 0) {
+    return (void *) (&cuInit);
+  } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
+    return (void *) (&cuLaunchKernel);
+  } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
+    return (void *) (&cuMemAlloc);
+  }
+
+  return (real_dlsym(handle, symbol));
+}
+
+
+#define CU_HOOK_GENERATE_INTERCEPT(func_name, params, ...)                                  \
   CUresult CUDAAPI func_name params {                                                       \
-    void *table = dlopen(CU_LIB_NAME, RTLD_NOW | RTLD_NODELETE);                            \
-    if (table == nullptr) {                                                                 \
-      fatal("failed to open cuda library table.");                                          \
-    }                                                                                       \
-    info("opened cuda library table.");                                                     \
-                                                                                            \
+    static void *real_func = (void *)real_dlsym(RTLD_NEXT, CUDA_SYMBOL_STRING(func_name));  \
     std::string func_name_str = std::string(CUDA_SYMBOL_STRING(func_name));                 \
-    void *func_ptr = dlsym(table, func_name_str.c_str());                                   \
-    if (func_ptr == nullptr) {                                                              \
-      fatal("failed to load cuda function " + func_name_str + ".");                         \
-    }                                                                                       \
     info("loaded cuda function " + func_name_str + ".");                                    \
-                                                                                            \
-    CUresult result = ((CUresult CUDAAPI(*) params)func_ptr)(__VA_ARGS__);                  \
+    CUresult result = ((CUresult CUDAAPI(*) params)real_func)(__VA_ARGS__);                 \
     return (result);                                                                        \
   }
 
-CU_INTERCEPT(cuLaunchKernel, (CUfunction f, unsigned int gridDimX, unsigned int gridDimY,
+CU_HOOK_GENERATE_INTERCEPT(cuLaunchKernel, (CUfunction f, unsigned int gridDimX, unsigned int gridDimY,
              unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY,
              unsigned int blockDimZ, unsigned int sharedMemBytes, CUstream hStream,
              void **kernelParams, void **extra),
              f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes,
              hStream, kernelParams, extra)
 
-CU_INTERCEPT(cuDriverGetVersion, (int *driverVersion), driverVersion)
+CU_HOOK_GENERATE_INTERCEPT(cuDriverGetVersion, (int *driverVersion), driverVersion)
 
-CU_INTERCEPT(cuInit, (unsigned int Flags), Flags)
+CU_HOOK_GENERATE_INTERCEPT(cuInit, (unsigned int Flags), Flags)
