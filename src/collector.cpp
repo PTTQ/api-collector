@@ -8,7 +8,6 @@
 #include <iostream>
 #include <string>
 #include <fstream>
-#include <unordered_set>
 
 extern "C" {
 void *__libc_dlsym(void *map, const char *name);
@@ -39,13 +38,7 @@ void fatal(std::string fatal) {
 
 const std::string LOG_FILE_NAME = "records";
 
-std::unordered_set<std::string> table;
-
 void writeRecord(const std::string &record) {
-  if (table.count(record)) {
-    return;
-  }
-  table.insert(record);
   std::ofstream fs;
   fs.open(LOG_FILE_NAME, std::ios::out | std::ios::app);
   fs << record << std::endl;
@@ -998,10 +991,15 @@ void *dlsym(void *handle, const char *symbol) {
 
 #define CU_HOOK_GENERATE_INTERCEPT(func_name, params, ...)                                  \
   CUresult CUDAAPI func_name params {                                                       \
-    static void *real_func = (void *)real_dlsym(RTLD_NEXT, CUDA_SYMBOL_STRING(func_name));  \
+    static void *table = dlopen("libcuda.so.1", RTLD_NOW | RTLD_NODELETE);                  \
+    if (table == nullptr) {                                                                 \
+      fatal("failed to load cuda table");                                                   \
+    }                                                                                       \
+    static void *real_func = (void *)real_dlsym(table, CUDA_SYMBOL_STRING(func_name));      \
     if (real_func == nullptr) {                                                             \
       fatal("failed to load function " + std::string(CUDA_SYMBOL_STRING(func_name)));       \
     }                                                                                       \
+    writeRecord(std::string(CUDA_SYMBOL_STRING(func_name)));                                \
     CUresult result = ((CUresult CUDAAPI(*) params)real_func)(__VA_ARGS__);                 \
     return (result);                                                                        \
   }
