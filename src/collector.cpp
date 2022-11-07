@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <unordered_map>
 
 extern "C" {
 void *__libc_dlsym(void *map, const char *name);
@@ -38,10 +39,39 @@ void fatal(std::string fatal) {
 
 const std::string LOG_FILE_NAME = "records";
 
+std::unordered_map<std::string, int> table;
+
 void writeRecord(const std::string &record) {
+  table[record]++;
   std::ofstream fs;
   fs.open(LOG_FILE_NAME, std::ios::out | std::ios::app);
-  fs << record << std::endl;
+  if (table[record] == 1) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 10) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 100) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 1000) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 10000) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 100000) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 1000000) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 10000000) {
+    fs << record << std::endl;
+  }
+  else if (table[record] == 100000000) {
+    fs << record << std::endl;
+  }
   fs.close();
 }
 
